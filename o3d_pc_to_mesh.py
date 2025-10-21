@@ -141,8 +141,6 @@ def main():
     if "all" in parts or "ball" in parts:
         ball_pivoting(pcd=used_pc)
 
-    # save_result(used_pc, las, pc_name)
-
 
 def print_help():
     print("How to use Open3D Point Cloud to Mesh:")
@@ -221,8 +219,6 @@ def alpha_shape(pcd):
     global visualize
 
     print("Create alpha shape mesh...")
-    # tetra_mesh, pt_map = o3d.geometry.TetraMesh.create_from_point_cloud(pcd)
-    # o3d.visualization.draw_geometries([tetra_mesh])
 
     # Center and scale to unit-ish size
     center = pcd.get_center()
@@ -236,12 +232,10 @@ def alpha_shape(pcd):
     d = np.median(nn_dists)
     print(f"Median neighbor distance: {d}")
 
-    # Try alpha ~ 2–5×d for first tests - 2 & 3 not so good, >=5?
     alphas = [2 * d, 3 * d, 5 * d, 8 * d, 10 * d]
 
     for alpha in alphas:
         mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
-        # o3d.io.write_triangle_mesh(f"results/alpha_mesh_{pc_name}_{alpha}.ply", mesh)
         mesh.compute_vertex_normals()
         if visualize:
             o3d.visualization.draw_geometries([mesh], mesh_show_back_face=True)
@@ -275,21 +269,19 @@ def ball_pivoting(pcd):
     radii = [d * f for f in factor_list]
     print("Trying radii:", radii)
 
-    # Tried first:
-    # bbox_size = np.linalg.norm(pcd.get_max_bound() - pcd.get_min_bound())
-    # radii = [bbox_size * f for f in [0.01, 0.02, 0.05, 0.1]]
-    # pcd.estimate_normals()
     mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
         pcd, 
         o3d.utility.DoubleVector(radii)
     )
-    # o3d.visualization.draw_geometries([pcd, rec_mesh])
-    
+
     center = mesh.get_center()
     mesh.translate(-center)
 
     scale_and_clean(mesh)
-
+    
+    if visualize:
+        o3d.visualization.draw_geometries([pcd, rec_mesh])
+    
     # create obj mesh
     o3d.io.write_triangle_mesh(
         f"{pc_name}_meshbpa.obj",
@@ -337,9 +329,9 @@ def scale_and_clean(mesh):
     # Clean up the mesh
     mesh.remove_duplicated_vertices()
     mesh.remove_duplicated_triangles()
-    mesh.remove_degenerate_triangles() # was sind die?
-    mesh.remove_non_manifold_edges() # warum das?
-    mesh.remove_unreferenced_vertices() # warum das?
+    mesh.remove_degenerate_triangles() 
+    mesh.remove_non_manifold_edges() 
+    mesh.remove_unreferenced_vertices() 
 
     # Recompute valid normals
     mesh.compute_vertex_normals()
@@ -354,7 +346,7 @@ def generate_heightmap(pcd, debug_run):
     z_range = z_max - z_min
 
     # Set grid resolution (size of each cell)
-    grid_size = 1.0  # meters, adjust for your scan scale
+    grid_size = 1.0  # meters
 
     # Compute bounds
     min_x, min_y = np.min(points[:, :2], axis=0)
@@ -367,7 +359,7 @@ def generate_heightmap(pcd, debug_run):
     # Initialize heightmap with NaNs
     heightmap = np.full((ny, nx), np.nan)
 
-    # Populate with max height (Z) in each cell, TODO: why do this?
+    # Populate with max height (Z) in each cell 
     for x, y, z in points:
         ix = int((x - min_x) / grid_size)
         iy = int((y - min_y) / grid_size)
@@ -382,7 +374,7 @@ def generate_heightmap(pcd, debug_run):
     known_y = yy[valid_mask]
     known_z = heightmap[valid_mask]
 
-    # Interpolation method: 'linear', 'nearest', or 'cubic', TODO: why cubic?
+    # Interpolation method: 'linear', 'nearest', or 'cubic'
     filled_heightmap = griddata(
         (known_x, known_y),
         known_z,
@@ -390,7 +382,7 @@ def generate_heightmap(pcd, debug_run):
         method='cubic'
     )
 
-    # Optional: fallback to nearest for remaining NaNs, maybe TODO: try without? What happens?
+    # Optional: fallback to nearest for remaining NaNs
     nan_mask = np.isnan(filled_heightmap)
     if np.any(nan_mask):
         filled_heightmap[nan_mask] = griddata(
@@ -406,40 +398,6 @@ def generate_heightmap(pcd, debug_run):
     filled_heightmap_float = filled_heightmap.astype(np.float32)
     heightmap_tmp = np.clip(filled_heightmap_float, 0, 1)
     heightmap_tmp_normalized = filled_heightmap.astype(np.float32)
-
-    # Normalize heightmap to 0–1
-    # min_h = np.nanmin(heightmap_tmp)
-    # max_h = np.nanmax(heightmap_tmp)
-    # if max_h - min_h == 0:
-    #     raise ValueError("Heightmap has no variation.")
-    # heightmap_tmp_normalized = (heightmap_tmp - min_h) / (max_h - min_h)
-
-    # TODO this is commented out
-    # # Encode height into 24-bit RGB
-    # h_int = (heightmap_tmp_normalized * 16777215).astype(np.uint32)
-    # R = ((h_int >> 16) & 0xFF).astype(np.uint8)
-    # G = ((h_int >> 8) & 0xFF).astype(np.uint8)
-    # B = (h_int & 0xFF).astype(np.uint8)
-
-    # # Stack to RGB and save 
-    # rgb_image = np.stack([R, G, B], axis=-1)
-    # Image.fromarray(rgb_image, mode='RGB').save(f"results/{pc_name}_heightmap.tiff")
-
-    # # save to npy for conversion to exr
-    # # tiff_path = Path("results/heightmap.tiff")
-    # #iio.imwrite(tiff_path, filled_heightmap_float)
-
-    # # convert to exr via ImageMagick
-    # # exr_path = tiff_path.with_suffix(".exr")
-    # tiff_path = f"results/{pc_name}_heightmap.tiff"
-    # exr_path = f"results/{pc_name}_heightmap.exr"
-    # subprocess.run(["magick", str(tiff_path), str(exr_path)], check=True)
-    # TODO end of comment
-
-    # Normalize to [0, 1] before encoding if needed
-    # normalized = (filled_heightmap_float - np.nanmin(filled_heightmap_float)) / (
-    #     np.nanmax(filled_heightmap_float) - np.nanmin(filled_heightmap_float)
-    # )
 
     normalized = (filled_heightmap_float - z_min) / z_range
 
@@ -457,27 +415,10 @@ def generate_heightmap(pcd, debug_run):
 
     # Save directly to EXR with RGB channels
     exr_path = f"results/{pc_name}_heightmap.exr"
-    # iio.imwrite(exr_path, rgb_image_f32, plugin='OpenEXR', extension=".exr")
     save_rgb_exr(exr_path, R, G, B)
+    # also save as png image
     Image.fromarray(rgb_image, mode='RGB').save(f"results/{pc_name}_heightmap_rgb_debug.png")
 
-
-    # TODO also commented out
-    # Save heightmap as image
-    # plt.figure(figsize=(10, 10))
-    # # cmap = plt.cm.viridis
-    # plt.imshow(filled_heightmap, cmap='terrain', origin='lower')
-    # plt.axis('off')
-    # plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    # # plt.colorbar(label='Height (Z)')
-    # # plt.title("Interpolated Heightmap")
-    # img_name = f"{pc_name}_heightmap" if not debug else f"{pc_name}_heightmap_debug"
-    # plt.savefig(f"results/{img_name}.png", dpi=300, bbox_inches='tight', pad_inches=0)
-    # plt.close()
-    #plt.show()
-
-    # Optionally, save as raw NumPy array
-    #np.save("results/heightmap.npy", filled_heightmap)
     print("... generated.")
 
 
@@ -504,32 +445,17 @@ def save_rgb_exr(path, R, G, B):
     exr.close()
 
 
-def save_result(pcd, las, output):
-    # Create a new LAS file from scratch or copy the header
-    new_las = laspy.create(point_format=las.header.point_format, file_version=las.header.version)
-
-    # Copy header info manually if needed
-    new_las.header.offsets = las.header.offsets
-    new_las.header.scales = las.header.scales
-
-    # Set coordinates (must convert Open3D points back to original scale if changed)
-    new_points = np.asarray(pcd.points)
-    new_las.x = new_points[:, 0]
-    new_las.y = new_points[:, 1]
-    new_las.z = new_points[:, 2]
-
-    # Optionally, reassign original attributes
-    # new_las.intensity = original_intensity_array
-
-    # Write to file
-    new_las.write(f"{output}_saved_cloud")
-    print("Cloud saved.")
-
-
 def pc_to_mesh(pcd):
     mesh, _ = o3d.geometry.PointCloud.compute_convex_hull(pcd)
-    #o3d.visualization.draw_geometries([mesh])
-    o3d.io.write_triangle_mesh(f"results/convex_hull_{pc_name}.ply", mesh)
+    if viszalize:
+        o3d.visualization.draw_geometries([mesh])
+    o3d.io.write_triangle_mesh(
+            f"{output_path}/{pc_name}_convex.obj",
+            mesh,
+            write_vertex_normals=True,
+            write_vertex_colors=True
+        )
+    # o3d.io.write_triangle_mesh(f"results/convex_hull_{pc_name}.ply", mesh)
 
 
 def delaunay(pcd):
@@ -547,7 +473,15 @@ def delaunay(pcd):
     mesh.triangles = o3d.utility.Vector3iVector(triangles)
     mesh.compute_vertex_normals()
 
-    o3d.visualization.draw_geometries([mesh])
+    if visualize:
+        o3d.visualization.draw_geometries([mesh])
+    
+    o3d.io.write_triangle_mesh(
+            f"{output_path}/{pc_name}_delaunay.obj",
+            mesh,
+            write_vertex_normals=True,
+            write_vertex_colors=True
+        )
 
 
 def mesh_from_classifications(las):
@@ -570,7 +504,7 @@ def mesh_from_classifications(las):
     # create ground mesh
     mesh = None
 
-    # TODO: make able to choose which method for mesh
+    # TODO: give option to choose which method to use instead of delaunay
     if len(ground_pts) > 3:
         tri = Delaunay(ground_pts[:, :2])
         mesh = o3d.geometry.TriangleMesh()
